@@ -3,63 +3,8 @@ use std::io::{ self, Write, BufWriter, Seek, SeekFrom };
 use std::str::FromStr;
 use itertools::iproduct;
 
-pub mod clauses;
-use clauses::*;
-
-/// La grille de sudoku
-struct Grille([[Option<u8>; 9]; 9]);
-
-impl Grille {
-    fn get_cell(&self, x: usize, y: usize) -> Option<u8> {
-        self.0[y - 1][x - 1]
-    }
-
-    /// Renvoie un vecteur des clauses unitaires décrivant l’état actuel de la grille.
-    fn get_litteraux(&self) -> Vec<Clause> {
-        let coord_to_litteral = |(x, y): (u8, u8)| -> Option<Clause> {
-            self.get_cell(x as usize, y as usize)
-                .map(|n| Clause::from([(true, n, x, y)]))
-        };
-
-        iproduct!(1..=9, 1..=9).filter_map(coord_to_litteral).collect()
-    }
-}
-
-enum GrilleParseError {
-    ImpossibleParserLigne(usize),
-    FormatInvalide,
-}
-
-impl FromStr for Grille {
-    type Err = GrilleParseError;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let parse_num = |c: char| -> Option<u8> {
-            if '1' <= c && c <= '9' { Some(c as u8 - '0' as u8) }
-            else { None }
-        };
-
-        let parse_line = |(line_number, line): (usize, &str)|
-            -> Result<[Option<u8>; 9], Self::Err>
-        {
-            line.chars()
-                .skip(1)
-                .step_by(2)
-                .map(parse_num)
-                .collect::<Vec<Option<u8>>>()
-                .try_into()
-                .or_else(|_| Err(GrilleParseError::ImpossibleParserLigne(line_number + 1)))
-        };
-
-        Ok(Self(input.lines()
-            .filter(|l| l.starts_with('|'))
-            .enumerate()
-            .map(|line| parse_line(line))
-            .collect::<Result<Vec<[Option<u8>; 9]>, Self::Err>>()?
-            .try_into()
-            .or_else(|_| Err(GrilleParseError::FormatInvalide))?))
-    }
-}
+// import the contents of `lib.rs`
+use sudoku_dimacs::*;
 
 enum Output {
     OutFile(BufWriter<File>),
@@ -119,19 +64,19 @@ fn main() -> io::Result<()> {
         write!(output, "{}", litteral)?;
     }
 
-    // RJ (gauche)
-    write!(output, "c RJ (gauche)\n")?;
+    // U (gauche)
+    write!(output, "c U (gauche)\n")?;
     for (x, y) in iproduct!(1..=9, 1..=9) {
         nb_clauses += 1;
         write!(output, "{}", Clause::from_iter((1..=9).map(|n| (true, n, x, y))))?;
     }
 
-    // RJ (droit)
-    write!(output, "c RJ (droite)\n")?;
+    // U (droit)
+    write!(output, "c U (droite)\n")?;
     for (n1, x, y) in iproduct!(1..=9, 1..=9, 1..=9) {
         nb_clauses += 1;
         write!(output, "{}", Clause::from_iter((1..=9)
-                    .filter(|&n2| n2 != n1)
+                    .filter(|n2| *n2 != n1)
                     .map(|n2| [ (false, n1, x, y), (false, n2, x, y), ])
             ))?;
     }
@@ -166,7 +111,6 @@ fn main() -> io::Result<()> {
         write!(output, "{}", Clause::from( [(false, n, x0, y), (false, n, x, y)] ))?;
     }
 
-    /* Fait la même chose que RJ(gauche), donc on en a pas besoin
     // R1 (gauche)
     write!(output, "c R1 (gauche)\n")?;
     for (i, j, x, y) in iproduct!(0..=2, 0..=2, 1..=3, 1..=3) {
@@ -174,7 +118,6 @@ fn main() -> io::Result<()> {
         write!(output, "{}", Clause::from_iter((1..=9)
                     .map(|n| (true, n, 3*i + x, 3*j + y))))?;
     }
-    */
 
     // R1 (droit)
     write!(output, "c R1 (droite)\n")?;
@@ -211,34 +154,9 @@ fn main() -> io::Result<()> {
     if let Output::OutFile(out_file) = &mut output {
         out_file.seek(SeekFrom::Start(10))?;
     }
+
     write!(output, "{nb_clauses}")?;
 
     output.flush().unwrap();
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn premier_litteral_dimacs() {
-        assert_eq!(Literal(true, 1, 1, 1).to_dimacs(), 1);
-    }
-
-    #[test]
-    fn collision_format_dimacs_literal() {
-        use itertools::izip;
-
-        let literaux = iproduct!(1..=9, 1..=9, 1..=9)
-                .map(|(n, x, y)| Literal(true, n, x, y));
-        let mut literaux_suivant = iproduct!(1..=9, 1..=9, 1..=9)
-                .map(|(n, x, y)| Literal(true, n, x, y));
-        literaux_suivant.next();
-
-        for (lit1, lit2) in izip!(literaux, literaux_suivant) {
-            println!("{}, {}", lit1.to_dimacs(), lit2.to_dimacs());
-            assert!(lit1.to_dimacs() + 1 == lit2.to_dimacs());
-        }
-    }
 }
